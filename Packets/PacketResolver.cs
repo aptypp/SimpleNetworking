@@ -1,6 +1,6 @@
 ﻿using System.Text;
 
-namespace SimpleNetworking.Packets.Packets
+namespace SimpleNetworking.Packets
 {
     public class PacketResolver
     {

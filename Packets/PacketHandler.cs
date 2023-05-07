@@ -1,4 +1,4 @@
-﻿namespace SimpleNetworking.Packets.Packets
+﻿namespace SimpleNetworking.Packets
 {
     public abstract class PacketHandler
     {

@@ -1,22 +1,21 @@
 ﻿using System.Net;
 using System.Net.Sockets;
-using SimpleNetworking.Interfaces;
-using System;
-using SimpleNetworking.Packets.Packets;
+using SimpleNetworking.Logger;
+using SimpleNetworking.Packets;
 
-namespace SimpleNetworking.Packets
+namespace SimpleNetworking
 {
     public abstract class AsyncServer
     {
         public bool IsWorking { get; protected set; }
         public ILogger Logger { get; set; }
 
-        private TcpListener _connectionListener;
+        protected TcpListener _connectionListener;
 
-        private readonly PacketResolver _packetResolver;
-        private readonly List<TcpClient> _clients;
-        private readonly PacketHandlersContainer _packetHandlersContainer;
-        private readonly CancellationTokenSource _stopServerCancellation;
+        protected readonly PacketResolver _packetResolver;
+        protected readonly List<TcpClient> _clients;
+        protected readonly PacketHandlersContainer _packetHandlersContainer;
+        protected readonly CancellationTokenSource _stopServerCancellationTokenSource;
 
         protected AsyncServer()
         {
@@ -24,8 +23,8 @@ namespace SimpleNetworking.Packets
             _packetResolver = new PacketResolver();
             _clients = new List<TcpClient>();
             _packetHandlersContainer = new PacketHandlersContainer();
-            _stopServerCancellation = new CancellationTokenSource();
-            _stopServerCancellation.Token.Register(() => { });
+            _stopServerCancellationTokenSource = new CancellationTokenSource();
+            _stopServerCancellationTokenSource.Token.Register(() => { });
         }
 
         ~AsyncServer()
@@ -42,7 +41,7 @@ namespace SimpleNetworking.Packets
 
             IsWorking = true;
 
-            ListenConnections();
+            ListenConnectionsAsync();
         }
 
         public void StopServer()
@@ -50,12 +49,15 @@ namespace SimpleNetworking.Packets
             IsWorking = false;
             OnBeforeServerStopped();
             _connectionListener.Stop();
-            _stopServerCancellation.Cancel();
+            _stopServerCancellationTokenSource.Cancel();
         }
 
         public void RegisterPacketHandler(PacketHandler packetHandler) => _packetHandlersContainer.Register(nameof(packetHandler), packetHandler);
 
-        protected async Task ListenClient(TcpClient client, CancellationToken cancellationToken)
+        public async Task SendPacketAsync(Packet packet, TcpClient tcpClient) =>
+            await tcpClient.GetStream().WriteAsync(_packetResolver.Serialize(packet));
+
+        protected async Task ListenClientAsync(TcpClient client, CancellationTokenSource cancellationTokenSource)
         {
             NetworkStream clientStream = client.GetStream();
 
@@ -65,13 +67,13 @@ namespace SimpleNetworking.Packets
             {
                 while (IsWorking)
                 {
-                    await clientStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
+                    await clientStream.ReadAsync(buffer, 0, buffer.Length, cancellationTokenSource.Token);
 
                     int packetSize = BitConverter.ToInt32(buffer, 0);
 
                     byte[] packetBytes = new byte[packetSize];
 
-                    int readBytesCount = await clientStream.ReadAsync(packetBytes, 0, packetBytes.Length, cancellationToken);
+                    int readBytesCount = await clientStream.ReadAsync(packetBytes, 0, packetBytes.Length, cancellationTokenSource.Token);
 
                     if (readBytesCount != packetSize)
                     {
@@ -98,7 +100,7 @@ namespace SimpleNetworking.Packets
             }
         }
 
-        private async Task ListenConnections()
+        private async Task ListenConnectionsAsync()
         {
             _connectionListener.Start();
 
@@ -110,7 +112,7 @@ namespace SimpleNetworking.Packets
                     IPEndPoint clientIpEndPoint = (IPEndPoint)newClient.Client.RemoteEndPoint;
                     Logger.Log($"New client connected {clientIpEndPoint.Address}:{clientIpEndPoint.Port}");
                     OnClientConnected(newClient);
-                    ListenClient(newClient, _stopServerCancellation.Token);
+                    ListenClientAsync(newClient, _stopServerCancellationTokenSource);
                 }
             }
             catch (Exception e)
@@ -123,9 +125,9 @@ namespace SimpleNetworking.Packets
             }
         }
 
-        protected virtual void OnClientConnected(TcpClient tcpClient) { }
+        protected abstract void OnClientConnected(TcpClient tcpClient);
 
-        protected virtual void OnClientDisconnected(TcpClient tcpClient) { }
+        protected abstract void OnClientDisconnected(TcpClient tcpClient);
 
         protected virtual void OnReceivedPacket(TcpClient tcpClient, Packet packet)
         {
@@ -134,6 +136,6 @@ namespace SimpleNetworking.Packets
             packetHandler.OnPacketReceived(packet);
         }
 
-        protected virtual void OnBeforeServerStopped() { }
+        protected abstract void OnBeforeServerStopped();
     }
 }

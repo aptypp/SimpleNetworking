@@ -1,4 +1,4 @@
-﻿namespace SimpleNetworking.Interfaces
+﻿namespace SimpleNetworking.Logger
 {
     public class ConsoleLogger : ILogger
     {
